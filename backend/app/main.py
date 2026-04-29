@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import json
@@ -9,11 +9,11 @@ from app.core.game_state import GameStateMachine, Role, GamePhase
 load_dotenv()
 
 game = GameStateMachine()
-human_player_id = 1  # 假设人类玩家是1号
+human_player_id = 1
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("✅ 服务器启动成功")
+    print("服务器启动成功")
     yield
     print("服务器关闭")
 
@@ -28,8 +28,6 @@ app.add_middleware(
 )
 
 connections = {}
-
-# Day 4 新增：存储 AI 内心独白
 ai_thoughts = {}
 
 @app.get("/api/health")
@@ -61,35 +59,29 @@ async def start_game():
 
 @app.post("/api/game/ai/speak")
 async def ai_speak(player_id: int, speech: str, thought: str, vote_target: int):
-    \"\"\"AI 发言接口（算法同学调用）\"\"\"
-    # 存储内心独白
     ai_thoughts[player_id] = thought
     
-    # 广播发言（带内心独白）
     for conn in connections.values():
         await conn.send_text(json.dumps({
             "type": "AI_SPEECH",
             "data": {
                 "player_id": player_id,
                 "speech": speech,
-                "thought": thought  # Day 4 新增：推送内心独白
+                "thought": thought
             }
         }))
     
-    # 处理投票
     if game.phase == GamePhase.DAY_VOTE:
         game.record_vote(player_id, vote_target)
     
-    # 切换到下一个发言者
     if game.phase == GamePhase.DAY_DISCUSSION:
         next_speaker = game.next_speaker()
         if next_speaker:
-            # 如果下一个是人类玩家，发送通知
             if next_speaker == human_player_id:
                 for conn in connections.values():
                     await conn.send_text(json.dumps({
                         "type": "YOUR_TURN",
-                        "data": {"message": "轮到你了！请输入发言", "time_limit": 30}
+                        "data": {"message": "轮到你了", "time_limit": 30}
                     }))
             else:
                 for conn in connections.values():
@@ -102,21 +94,13 @@ async def ai_speak(player_id: int, speech: str, thought: str, vote_target: int):
 
 @app.get("/api/game/trust-matrix")
 async def get_trust_matrix():
-    \"\"\"Day 4 新增：获取信任矩阵数据（给前端可视化用）\"\"\"
-    # 从数据同学的 memory_service 获取
-    try:
-        from app.services.memory_service import memory_db
-        trust_matrix = memory_db.get_trust_matrix()
-        return {"trust_matrix": trust_matrix}
-    except:
-        # 返回示例数据
-        sample_matrix = {}
-        for i in range(1, 7):
-            sample_matrix[str(i)] = {}
-            for j in range(1, 7):
-                if i != j:
-                    sample_matrix[str(i)][str(j)] = 50
-        return {"trust_matrix": sample_matrix, "note": "示例数据，等待memory_service接入"}
+    sample_matrix = {}
+    for i in range(1, 7):
+        sample_matrix[str(i)] = {}
+        for j in range(1, 7):
+            if i != j:
+                sample_matrix[str(i)][str(j)] = 50
+    return {"trust_matrix": sample_matrix}
 
 @app.post("/api/game/night/wolf")
 async def wolf_vote(wolf_id: int, target_id: int):
@@ -198,14 +182,13 @@ async def game_status():
 async def websocket_endpoint(websocket: WebSocket, player_id: int):
     await websocket.accept()
     connections[player_id] = websocket
-    print(f"✅ 玩家 {player_id} 已连接")
+    print(f"玩家 {player_id} 已连接")
 
     try:
         while True:
             data = await websocket.receive_text()
-            print(f"📨 收到玩家 {player_id}: {data}")
+            print(f"收到玩家 {player_id}: {data}")
             
-            # 人类玩家发言
             if player_id == human_player_id and game.phase == GamePhase.DAY_DISCUSSION:
                 if game.current_speaker == human_player_id:
                     for conn in connections.values():
@@ -225,4 +208,4 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int):
 
     except WebSocketDisconnect:
         del connections[player_id]
-        print(f"❌ 玩家 {player_id} 断开")
+        print(f"玩家 {player_id} 断开")
