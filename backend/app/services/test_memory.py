@@ -1,4 +1,4 @@
-from backend.app.services.memory_service import memory_db
+from memory_service import memory_db
 
 print("--- 开始测试数据模块 ---")
 
