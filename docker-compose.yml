@@ -1,0 +1,62 @@
+version: '3.8'
+
+# 统一网络，确保所有服务能互相访问
+networks:
+  wolf-game-net:
+    driver: bridge
+
+services:
+  # 后端服务（组长/成员1负责）
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: wolf-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MILVUS_HOST=milvus
+      - MILVUS_PORT=19530
+    depends_on:
+      - redis
+      - milvus
+    networks:
+      - wolf-game-net
+
+  # 前端服务（成员4负责）
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: wolf-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - wolf-game-net
+
+  # 缓存/会话服务（成员3负责）
+  redis:
+    image: redis:7-alpine
+    container_name: wolf-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - wolf-game-net
+
+  # 向量数据库/记忆库（成员3进阶）
+  milvus:
+    image: milvusdb/milvus:v2.3.0
+    container_name: wolf-milvus
+    restart: unless-stopped
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    networks:
+      - wolf-game-net
