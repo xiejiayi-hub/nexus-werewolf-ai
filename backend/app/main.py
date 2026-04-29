@@ -9,6 +9,7 @@ from app.core.game_state import GameStateMachine, Role, GamePhase
 load_dotenv()
 
 game = GameStateMachine()
+human_player_id = 1  # 假设人类玩家是1号
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -27,6 +28,9 @@ app.add_middleware(
 )
 
 connections = {}
+
+# Day 4 新增：存储 AI 内心独白
+ai_thoughts = {}
 
 @app.get("/api/health")
 async def health():
@@ -51,18 +55,76 @@ async def start_game():
         "message": "Game started",
         "phase": game.phase,
         "first_speaker": game.current_speaker,
+        "human_player": human_player_id,
         "roles": {str(k): v for k, v in roles.items()}
     }
 
+@app.post("/api/game/ai/speak")
+async def ai_speak(player_id: int, speech: str, thought: str, vote_target: int):
+    \"\"\"AI 发言接口（算法同学调用）\"\"\"
+    # 存储内心独白
+    ai_thoughts[player_id] = thought
+    
+    # 广播发言（带内心独白）
+    for conn in connections.values():
+        await conn.send_text(json.dumps({
+            "type": "AI_SPEECH",
+            "data": {
+                "player_id": player_id,
+                "speech": speech,
+                "thought": thought  # Day 4 新增：推送内心独白
+            }
+        }))
+    
+    # 处理投票
+    if game.phase == GamePhase.DAY_VOTE:
+        game.record_vote(player_id, vote_target)
+    
+    # 切换到下一个发言者
+    if game.phase == GamePhase.DAY_DISCUSSION:
+        next_speaker = game.next_speaker()
+        if next_speaker:
+            # 如果下一个是人类玩家，发送通知
+            if next_speaker == human_player_id:
+                for conn in connections.values():
+                    await conn.send_text(json.dumps({
+                        "type": "YOUR_TURN",
+                        "data": {"message": "轮到你了！请输入发言", "time_limit": 30}
+                    }))
+            else:
+                for conn in connections.values():
+                    await conn.send_text(json.dumps({
+                        "type": "NEXT_SPEAKER",
+                        "data": {"speaker": next_speaker}
+                    }))
+    
+    return {"status": "ok"}
+
+@app.get("/api/game/trust-matrix")
+async def get_trust_matrix():
+    \"\"\"Day 4 新增：获取信任矩阵数据（给前端可视化用）\"\"\"
+    # 从数据同学的 memory_service 获取
+    try:
+        from app.services.memory_service import memory_db
+        trust_matrix = memory_db.get_trust_matrix()
+        return {"trust_matrix": trust_matrix}
+    except:
+        # 返回示例数据
+        sample_matrix = {}
+        for i in range(1, 7):
+            sample_matrix[str(i)] = {}
+            for j in range(1, 7):
+                if i != j:
+                    sample_matrix[str(i)][str(j)] = 50
+        return {"trust_matrix": sample_matrix, "note": "示例数据，等待memory_service接入"}
+
 @app.post("/api/game/night/wolf")
 async def wolf_vote(wolf_id: int, target_id: int):
-    \"\"\"狼人投票杀人\"\"\"
     if game.phase != GamePhase.NIGHT_WOLF:
         return {"error": "Not in wolf night phase"}
     
     game.record_wolf_vote(wolf_id, target_id)
     
-    # 检查是否所有狼人都投票了
     werewolves = [p for p in game.players if p["role"] == Role.WEREWOLF and p["alive"]]
     if len(game.wolf_votes) == len(werewolves):
         killed = game.resolve_wolf_kill()
@@ -73,17 +135,14 @@ async def wolf_vote(wolf_id: int, target_id: int):
 
 @app.post("/api/game/night/seer")
 async def seer_check(target_id: int):
-    \"\"\"预言家查验\"\"\"
     if game.phase != GamePhase.NIGHT_SEER:
         return {"error": "Not in seer night phase"}
     
     game.record_seer_check(target_id)
     result = game.get_seer_result()
     
-    # 进入天亮结算
     killed = game.resolve_night()
     
-    # 广播死亡消息
     for conn in connections.values():
         await conn.send_text(json.dumps({
             "type": "NIGHT_RESULT",
@@ -112,7 +171,6 @@ async def cast_vote(voter_id: int, target_id: int):
                     "data": {"eliminated": eliminated, "phase": game.phase}
                 }))
             
-            # 检查游戏是否结束
             if game.phase == GamePhase.GAME_OVER:
                 winner = game.get_winner()
                 for conn in connections.values():
@@ -121,7 +179,6 @@ async def cast_vote(voter_id: int, target_id: int):
                         "data": {"winner": winner}
                     }))
         else:
-            # 平票，进入下一轮
             game.start_night_phase()
 
     return {"status": "voted", "votes": game.votes}
@@ -132,7 +189,9 @@ async def game_status():
         "phase": game.phase,
         "alive_players": game.alive_players,
         "current_speaker": game.current_speaker,
-        "round": game.round
+        "round": game.round,
+        "human_player": human_player_id,
+        "ai_thoughts": ai_thoughts
     }
 
 @app.websocket("/ws/{player_id}")
@@ -145,26 +204,22 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int):
         while True:
             data = await websocket.receive_text()
             print(f"📨 收到玩家 {player_id}: {data}")
-
-            if game.phase == GamePhase.DAY_DISCUSSION and game.current_speaker == player_id:
-                for conn in connections.values():
-                    await conn.send_text(json.dumps({
-                        "type": "SPEECH",
-                        "data": {"player_id": player_id, "content": data}
-                    }))
-                next_speaker = game.next_speaker()
-                if next_speaker:
+            
+            # 人类玩家发言
+            if player_id == human_player_id and game.phase == GamePhase.DAY_DISCUSSION:
+                if game.current_speaker == human_player_id:
                     for conn in connections.values():
                         await conn.send_text(json.dumps({
-                            "type": "NEXT_SPEAKER",
-                            "data": {"speaker": next_speaker}
+                            "type": "SPEECH",
+                            "data": {"player_id": human_player_id, "content": data}
                         }))
-                elif game.phase == GamePhase.DAY_VOTE:
-                    for conn in connections.values():
-                        await conn.send_text(json.dumps({
-                            "type": "VOTE_PHASE",
-                            "data": {"message": "Now voting time!"}
-                        }))
+                    next_speaker = game.next_speaker()
+                    if next_speaker:
+                        for conn in connections.values():
+                            await conn.send_text(json.dumps({
+                                "type": "NEXT_SPEAKER",
+                                "data": {"speaker": next_speaker}
+                            }))
 
             await websocket.send_text(json.dumps({"type": "ACK", "data": "received"}))
 
