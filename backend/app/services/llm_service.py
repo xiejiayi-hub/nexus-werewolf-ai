@@ -4,16 +4,31 @@ import requests
 import json
 import asyncio
 import random
+import os
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-API_URL = "http://localhost:6006/v1/chat/completions"
-MODEL_PATH = "/root/autodl-tmp/DeepSeek-R1-Distill-Qwen-7B"
+# ========== 配置区域 ==========
+# 方式1：通过代理（需要工程同学启动服务）
+PROXY_URL = "http://localhost:8001/deepseek/v1/chat/completions"
 
-# 配置
+# 方式2：直连 DeepSeek 官方 API（需要自己注册 Key）
+DIRECT_URL = "https://api.deepseek.com/v1/chat/completions"
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")  # 从环境变量读取
+
+# 选择使用哪种方式：'proxy' 或 'direct'
+USE_MODE = "proxy"  # 改成 "direct" 就用直连
+
+# 根据模式设置实际 URL
+if USE_MODE == "proxy":
+    API_URL = PROXY_URL
+else:
+    API_URL = DIRECT_URL
+
 TIMEOUT_SECONDS = 10
 MAX_RETRIES = 2
 RETRY_DELAY = 1
+# ============================
 
 
 def _get_speech_prompt(role: str, game_state: str, history: str) -> str:
@@ -43,23 +58,33 @@ def _get_trust_prompt(role: str, history: str, speech: str) -> str:
 
 def _call_api_with_retry(prompt: str, max_retries: int = MAX_RETRIES) -> Optional[str]:
     """带重试的 API 调用"""
+    headers = {"Content-Type": "application/json"}
+    
+    # 如果是直连模式，添加 Authorization
+    if USE_MODE == "direct" and DEEPSEEK_API_KEY:
+        headers["Authorization"] = f"Bearer {DEEPSEEK_API_KEY}"
+    
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 150,
+        "temperature": 0.7
+    }
+    
     for attempt in range(max_retries):
         try:
             resp = requests.post(
                 API_URL,
-                headers={"Content-Type": "application/json"},
-                json={
-                    "model": MODEL_PATH,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 150,
-                    "temperature": 0.7
-                },
+                headers=headers,
+                json=payload,
                 timeout=TIMEOUT_SECONDS
             )
             if resp.status_code == 200:
                 result = resp.json()["choices"][0]["message"]["content"].strip()
                 if result:
                     return result
+            else:
+                print(f"API 返回错误码: {resp.status_code}, 响应: {resp.text[:200]}")
         except requests.Timeout:
             print(f"API 超时 (尝试 {attempt + 1}/{max_retries})")
         except Exception as e:
@@ -99,10 +124,8 @@ def _get_fallback_response(role: str) -> Dict[str, Any]:
 def _parse_json_response(response: str) -> Optional[Dict]:
     """解析 JSON 响应"""
     try:
-        # 尝试直接解析
         return json.loads(response)
     except:
-        # 尝试提取 JSON 部分
         import re
         json_match = re.search(r'\{[^{}]*\}', response)
         if json_match:
@@ -120,19 +143,7 @@ async def get_ai_response(
     history: str,
     timeout: int = TIMEOUT_SECONDS
 ) -> Dict[str, Any]:
-    """
-    获取 AI 回复（带超时控制和降级发言）
-    
-    返回格式符合协议：
-    {
-        "player_id": int,
-        "role": str,
-        "thought": str,
-        "speech": str,
-        "vote_target": Optional[int],
-        "trust_scores": Dict[str, int]
-    }
-    """
+    """获取 AI 回复（带超时控制和降级发言）"""
     
     # 1. 生成公开发言
     speech_prompt = _get_speech_prompt(role, game_state, history)
@@ -169,15 +180,14 @@ async def get_ai_response(
     # 6. 确保信任值包含自己（自己对自己100分）
     trust_scores[str(player_id)] = 100
     
-    # 7. 返回结果
     return {
         "player_id": player_id,
         "role": role,
         "thought": thought,
         "speech": speech,
-        "vote_target": None,  # 由投票阶段决定
+        "vote_target": None,
         "trust_scores": trust_scores,
-        "_meta": {"fallback": fallback_used}  # 调试信息
+        "_meta": {"fallback": fallback_used}
     }
 
 
@@ -188,14 +198,11 @@ async def get_ai_response_with_timeout(
     history: str,
     timeout: int = TIMEOUT_SECONDS
 ) -> Dict[str, Any]:
-    """
-    带超时控制的 AI 回复（外层包装）
-    确保整个调用过程不超过 timeout 秒
-    """
+    """带超时控制的 AI 回复"""
     try:
         return await asyncio.wait_for(
             get_ai_response(player_id, role, game_state, history),
-            timeout=timeout + 5  # 给内部重试留时间
+            timeout=timeout + 5
         )
     except asyncio.TimeoutError:
         print(f"AI 调用整体超时，使用降级发言")
@@ -211,7 +218,6 @@ async def get_ai_response_with_timeout(
         }
 
 
-# 同步版本的测试函数（方便直接运行测试）
 def test_sync(player_id: int = 1, role: str = "VILLAGER"):
     """同步测试函数"""
     import asyncio
@@ -226,5 +232,4 @@ def test_sync(player_id: int = 1, role: str = "VILLAGER"):
 
 
 if __name__ == "__main__":
-    # 运行测试
     test_sync()
