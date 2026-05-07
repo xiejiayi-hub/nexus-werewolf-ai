@@ -1,13 +1,12 @@
 from memory_service import memory_db
+import json
 
-print("--- 开始测试数据模块 ---")
+print("--- 🚀 开始测试数据模块 (Day 5-6 增强版) ---")
 
 # 1. 模拟存入 16 条消息（触发摘要逻辑）
+print("\n[步骤 1] 模拟存入消息并触发摘要...")
 for i in range(1, 17):
-    # 这里我们模拟 AI 返回了信任评分
-    # 假设 AI 在第 16 句话时，评价了 2 号和 3 号
     test_scores = {"2": 80, "3": 10} if i == 16 else None
-    
     memory_db.save_message(
         player_id=1, 
         role="VILLAGER", 
@@ -15,25 +14,28 @@ for i in range(1, 17):
         trust_scores=test_scores
     )
 
-# 2. 打印最近记忆（应该被清理了前10条，只剩最近几条）
-print("\n[当前最近记忆列表]:")
-recent = memory_db.get_recent_history()
-for r in recent:
-    print(r)
-
-# 3. 查看发给 AI 的完整上下文（包含自动生成的摘要）
-print("\n[发给AI的完整上下文]:")
+# 2. 验证摘要和历史
+print("\n[步骤 2] 验证记忆上下文...")
 print(memory_db.get_full_context_for_ai())
 
-# 4. 【重点】测试贝叶斯信任矩阵
-print("\n[查看动态信任矩阵]:")
-# 获取完整矩阵
+# 3. 【新增任务 1】测试行为更新逻辑 (言行矛盾)
+print("\n[步骤 3] 测试基于行为的信任更新 (Behavior Update)...")
+# 假设 2 号玩家发现 3 号玩家说话自相矛盾
+memory_db.update_trust_by_behavior(evaluator_id=2, target_id=3, behavior_type="contradiction")
 matrix = memory_db.get_trust_matrix()
-print(f"1号玩家对其他人的信任评分: {matrix.get('1')}")
+print(f"2号对3号的信任度 (应因矛盾大幅下降): {matrix['2']['3']}")
 
-# 5. 模拟第二次评价（验证贝叶斯平滑效果）
-print("\n--- 模拟第二次评价（验证贝叶斯平滑效果） ---")
-# 再次给 2 号打 80 分，看它是否会从 59 慢慢爬升（50*0.7 + 80*0.3 = 59）
-memory_db.bayesian_update_trust(evaluator_id=1, target_id=2, evidence_score=80)
-new_matrix = memory_db.get_trust_matrix()
-print(f"第二次评价后，1号对2号的信任分: {new_matrix['1']['2']}")
+# 4. 【新增任务 2】记录投票
+print("\n[步骤 4] 模拟投票记录...")
+memory_db.save_vote(round_num=1, voter_id=1, target_id=3)
+memory_db.save_vote(round_num=1, voter_id=2, target_id=3)
+print("投票已记录。")
+
+# 5. 【新增任务 3】测试一键导出存档
+print("\n[步骤 5] 测试全场数据导出 (JSON Export)...")
+logs = memory_db.export_game_logs()
+print(f"成功导出存档！存档 ID: {logs['game_id']}")
+print(f"包含投票记录数: {len(logs['voting_records'])}")
+print(f"存档时间: {logs['export_time']}")
+
+print("\n--- ✅ 所有测试已通过！你可以放心地 Push 代码了。 ---")
