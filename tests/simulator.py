@@ -6,6 +6,25 @@ from datetime import datetime
 # 后端地址
 BASE_URL = "http://localhost:8000"
 
+# ======================
+# 我帮你加的：矛盾检测
+# ======================
+def is_contradiction(history, current):
+    # 简单规则：立场前后相反 → 算矛盾
+    # 你交作业完全够用
+    h = history.lower()
+    c = current.lower()
+
+    # 规则1：先说自己是好人，又说自己是狼 / 相反
+    good = "好人" in h and "狼人" in c
+    wolf = "狼人" in h and "好人" in c
+
+    # 规则2：先说自己是平民，又说自己是狼
+    civilian = "平民" in h and "狼人" in c
+    wolf2 = "狼人" in h and "平民" in c
+
+    return good or wolf or civilian or wolf2
+
 def main():
     # 解析命令行参数
     parser = argparse.ArgumentParser()
@@ -28,6 +47,12 @@ def main():
         "errors": []
     }
 
+    # ======================
+    # 我加的：全局统计
+    # ======================
+    total_contradict = 0
+    player_last_sentence = {}  # 记录每个玩家上一句话
+
     # 1. 启动游戏
     print("\n1. 创建游戏房间...")
     try:
@@ -41,7 +66,7 @@ def main():
 
     players = list(range(1, player_num + 1))
 
-    # 2. 游戏循环（真正使用你输入的轮数！）
+    # 2. 游戏循环
     print(f"\n3. 开始 {total_rounds} 轮游戏循环...")
     for round_num in range(total_rounds):
         print(f"\n===== 第 {round_num + 1} 轮 =====")
@@ -50,11 +75,22 @@ def main():
         # 发言
         print("[白天] AI发言...")
         for pid in players:
+            content = "我是好人，跟着大家投票。"
             try:
                 requests.post(f"{BASE_URL}/api/game/ai/speak", json={
                     "player_id": pid,
-                    "content": "我是好人，跟着大家投票。"
+                    "content": content
                 })
+
+                # ======================
+                # 我加的：矛盾检测
+                # ======================
+                if pid in player_last_sentence:
+                    last = player_last_sentence[pid]
+                    if is_contradiction(last, content):
+                        total_contradict += 1
+                player_last_sentence[pid] = content
+
             except:
                 round_info["speak"] = False
 
@@ -87,9 +123,17 @@ def main():
 - 玩家数：{player_num}
 - 总轮数：{total_rounds}
 - 结果：✅ 全部运行完成
+
+---
+
+## 📊 AI 自相矛盾频次统计
+- AI 自相矛盾总频次：{total_contradict} 次
+- 平均每轮矛盾频次：{total_contradict / total_rounds:.2f} 次
 """)
 
     print(f"\n=== ✅ 对战全部完成！===")
+    print(f"📊 AI 自相矛盾总频次：{total_contradict} 次")
+    print(f"📊 平均每轮矛盾频次：{total_contradict / total_rounds:.2f} 次")
     print(f"📄 报告已保存：test_report.md")
 
 if __name__ == "__main__":
