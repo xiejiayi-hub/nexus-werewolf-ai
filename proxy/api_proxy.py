@@ -35,12 +35,21 @@ async def proxy_deepseek(path: str, request: Request):
     }
     
     body = await request.json()
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(120.0),  # 超时拉到 120 秒
+        follow_redirects=True          # 允许跳转
+    ) as client:
         try:
-            resp = await client.post(url, headers=headers, json=body)
+            resp = await client.post(
+                url,
+                headers=headers,
+                json=body,
+            )
             return resp.json()
         except httpx.TimeoutException:
-            raise HTTPException(status_code=504, detail="API 请求超时")
+            raise HTTPException(status_code=504, detail="API 请求超时，请切换网络重试")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"代理错误：{str(e)}")
 
 @app.post("/gpt/{path:path}")
 async def proxy_gpt(path: str, request: Request):

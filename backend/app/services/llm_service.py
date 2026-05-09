@@ -9,15 +9,10 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 
 # ========== 配置区域 ==========
-# 方式1：通过代理（需要工程同学启动服务）
-PROXY_URL = "http://localhost:8001/deepseek/v1/chat/completions"
-
-# 方式2：直连 DeepSeek 官方 API（需要自己注册 Key）
+PROXY_URL = "http://10.41.0.180:8001/deepseek/v1/chat/completions"
 DIRECT_URL = "https://api.deepseek.com/v1/chat/completions"
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")  # 从环境变量读取
-
-# 选择使用哪种方式：'proxy' 或 'direct'
-USE_MODE = "proxy"  # 改成 "direct" 就用直连
+DEEPSEEK_API_KEY = "sk-b8f0354beca6443eb6dbf96e48ab4608"
+USE_MODE = "direct"
 
 # 根据模式设置实际 URL
 if USE_MODE == "proxy":
