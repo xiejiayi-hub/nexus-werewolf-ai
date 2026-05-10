@@ -1,4 +1,4 @@
-﻿from typing import List, Dict, Optional
+from typing import List, Dict, Optional
 from enum import Enum
 import random
 
@@ -28,12 +28,11 @@ class GameStateMachine:
         self.votes: Dict[int, int] = {}
         self.round: int = 0
         
-        # 夜晚阶段数据
-        self.wolf_votes: Dict[int, int] = {}  # 狼人投票 {狼人ID: 目标ID}
-        self.seer_target: Optional[int] = None  # 预言家查验目标
-        self.witch_save: Optional[int] = None  # 女巫救的人
-        self.witch_poison: Optional[int] = None  # 女巫毒的人
-        self.killed_target: Optional[int] = None  # 夜晚被杀的人
+        self.wolf_votes: Dict[int, int] = {}
+        self.seer_target: Optional[int] = None
+        self.witch_save: Optional[int] = None
+        self.witch_poison: Optional[int] = None
+        self.killed_target: Optional[int] = None
         
     def assign_roles(self, player_ids: List[int]) -> Dict[int, Role]:
         roles = [Role.WEREWOLF, Role.WEREWOLF, Role.SEER,
@@ -50,7 +49,6 @@ class GameStateMachine:
         return role_assignment
 
     def start_night_phase(self):
-        \"\"\"进入夜晚阶段\"\"\"
         self.phase = GamePhase.NIGHT_WOLF
         self.wolf_votes = {}
         self.seer_target = None
@@ -60,12 +58,10 @@ class GameStateMachine:
         return self.phase
 
     def record_wolf_vote(self, wolf_id: int, target_id: int):
-        \"\"\"狼人投票杀人\"\"\"
         if self.phase == GamePhase.NIGHT_WOLF:
             self.wolf_votes[wolf_id] = target_id
 
     def resolve_wolf_kill(self) -> Optional[int]:
-        \"\"\"结算狼人杀人结果\"\"\"
         if not self.wolf_votes:
             return None
         
@@ -83,15 +79,13 @@ class GameStateMachine:
         if len(candidates) == 1:
             self.killed_target = candidates[0]
             return self.killed_target
-        return None  # 平票，无人死亡
+        return None
 
     def record_seer_check(self, target_id: int):
-        \"\"\"预言家查验\"\"\"
         if self.phase == GamePhase.NIGHT_SEER:
             self.seer_target = target_id
 
     def get_seer_result(self) -> Optional[str]:
-        \"\"\"获取查验结果\"\"\"
         if self.seer_target is None:
             return None
         for player in self.players:
@@ -100,19 +94,11 @@ class GameStateMachine:
         return None
 
     def resolve_night(self):
-        \"\"\"结算整个夜晚\"\"\"
-        # 1. 先结算狼人杀人
         killed = self.resolve_wolf_kill()
         
-        if killed:
-            # 女巫救人（简化版，暂不实现女巫逻辑）
-            pass
-        
-        # 2. 执行死亡
         if self.killed_target:
             self.eliminate(self.killed_target, silent=True)
         
-        # 3. 进入白天
         self.start_day_phase()
         return self.killed_target
 
