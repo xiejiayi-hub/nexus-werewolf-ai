@@ -28,34 +28,138 @@ function App() {
 
   // 当前用户ID
   const [currentPlayer, setCurrentPlayer] = useState(1);
-
+  const [myRole, setMyRole] = useState("");
+  const [myPlayerId, setMyPlayerId] = useState(1); 
+  const [isConnected, setIsConnected] = useState(false);
   // AI thought
   const [selectedThought, setSelectedThought] = useState(null);
 
   // 当前查看的AI
   const [selectedAI, setSelectedAI] = useState(1);
 
+  //信任
+  const [trustMatrix, setTrustMatrix] = useState({});
+  const [matrixUpdateTrigger, setMatrixUpdateTrigger] = useState(0);
+
   // 输入框内容
   const [speechInput, setSpeechInput] = useState("");
   const [eliminatedPlayers, setEliminatedPlayers] = useState([]);
 
+  // ========== 新增：夜晚选择相关状态 ==========
+  const [nightAction, setNightAction] = useState(null);
+  const [nightCandidates, setNightCandidates] = useState([]);
+  const [showNightModal, setShowNightModal] = useState(false);
+  const [nightActionType, setNightActionType] = useState("");
+
   const players = [1, 2, 3, 4, 5, 6];
+
+  // ========== 定时刷新信任矩阵 ==========
+  useEffect(() => {
+    const fetchTrustMatrix = async () => {
+      try {
+        const response = await fetch("http://localhost:8000/api/game/trust-matrix");
+        const data = await response.json();
+        setTrustMatrix(data.trust_matrix);
+      } catch (err) {
+        console.error("获取信任矩阵失败:", err);
+      }
+    };
+    
+    fetchTrustMatrix();
+    const interval = setInterval(fetchTrustMatrix, 3000);
+    return () => clearInterval(interval);
+  }, [matrixUpdateTrigger]);
+
   // ======================
   // WebSocket（核心实时层）
   // ======================
   const handleSocketMessage = (data) => {
+    console.log("=== 收到消息 ===");
+    console.log("消息类型:", data.type);
+    console.log("消息内容:", data.data);
 
     switch (data.type) {
+
+      case "ROLE_ASSIGNMENT":
+        console.log("收到角色分配:", data.data);
+        console.log("当前玩家ID:", currentPlayer);
+        console.log("data.data.player_id:", data.data.player_id);
+        if (data.data.player_id === currentPlayer) {
+            setMyRole(data.data.role);
+            console.log("设置角色为:", data.data.role);
+            
+            let roleMessage = `你的身份是：${data.data.role}`;
+            
+            if (data.data.role === "WEREWOLF" && data.data.werewolf_teammates) {
+                const teammates = data.data.werewolf_teammates.map(id => `P${id}`).join(", ");
+                roleMessage += `，你的狼人队友是：${teammates}`;
+                console.log("狼人队友:", teammates);
+            }
+            
+            setLogs((prev) => [
+                ...prev,
+                {
+                    player_id: "SYSTEM",
+                    content: roleMessage
+                }
+            ]);
+        } else {
+            console.log("角色分配不是给当前玩家，忽略");
+        }
+        break;
+      
+      // ========== 新增：处理夜晚选择请求 ==========
+      case "NIGHT_CHOOSE_TARGET":
+        console.log("夜晚选择目标:", data.data);
+        setNightActionType(data.data.action);
+        setNightCandidates(data.data.candidates);
+        setShowNightModal(true);
+        break;
+
+      // ========== 新增：处理预言家查验结果 ==========
+      case "SEER_RESULT":
+        setLogs((prev) => [
+          ...prev,
+          {
+            player_id: "SYSTEM",
+            content: `🔍 你查验了 P${data.data.target}，他是${data.data.result}`
+          }
+        ]);
+        break;
+
+      // ======================
+      // 游戏开始
+      // ======================
+      case "GAME_START":
+        setCurrentSpeaker(data.data.first_speaker);
+        setMatrixUpdateTrigger(prev => prev + 1);
+        setLogs((prev) => [
+          ...prev,
+          {
+            player_id: "SYSTEM",
+            content: "游戏开始"
+          }
+        ]);
+
+        break;
 
       // ======================
       // 轮到当前玩家
       // ======================
       case "YOUR_TURN":
-
+        console.log("收到 YOUR_TURN 消息:", data.data);  // 添加日志
         setIsMyTurn(true);
         setVotePhase(false);
         setPhase("DAY");
 
+        // 添加系统提示
+        setLogs((prev) => [
+          ...prev,
+          {
+            player_id: "SYSTEM",
+            content: `轮到你发言了！你是 ${myPlayerId} 号玩家`
+          }
+        ]);
         break;
 
       // ======================
@@ -69,13 +173,17 @@ function App() {
 
         break;
 
+      case "VOTE_CAST":
+        setMatrixUpdateTrigger(prev => prev + 1);
+        setLogs((prev) => [...prev, data.data]);
+
+        break;
+
       // ======================
       // 玩家发言
       // ======================
       case "SPEECH":
-
-      case "AI_SPEECH":
-
+        setMatrixUpdateTrigger(prev => prev + 1);
         setLogs((prev) => [...prev, data.data]);
 
         break;
@@ -93,7 +201,7 @@ function App() {
       // 玩家淘汰
       // ======================
       case "ELIMINATION":
-
+        setMatrixUpdateTrigger(prev => prev + 1);
         setLogs((prev) => [...prev, data.data]);
 
         // 记录淘汰玩家
@@ -113,22 +221,25 @@ function App() {
 
         break;
 
-      // ======================
-      // 游戏开始
-      // ======================
-      case "GAME_START":
 
-        setCurrentSpeaker(data.data.first_speaker);
+      case "NEXT_DAY":
 
         setLogs((prev) => [
           ...prev,
           {
             player_id: "SYSTEM",
-            content: "游戏开始"
+            content: `进入第 ${data.data.round} 天`
           }
         ]);
-
+        setMatrixUpdateTrigger(prev => prev + 1);
+        setCurrentSpeaker(data.data.current);
+        // 更新存活玩家列表，移除已淘汰的
+        if (data.data.alive_players) {
+          const newEliminated = players.filter(p => !data.data.alive_players.includes(p));
+          setEliminatedPlayers(newEliminated);
+        }
         break;
+
 
       // ======================
       // 游戏结束
@@ -151,36 +262,44 @@ function App() {
     }
   };
   
-  
   useEffect(() => {
+    const playerId = 1;  // 人类玩家固定为1
+    setCurrentPlayer(playerId);
+    setMyPlayerId(playerId);
 
-    const socket = new WebSocket(
-      `ws://localhost:8000/ws/${currentPlayer}`
-    );
+    console.log("正在连接 WebSocket...");
+    const socket = new WebSocket(`ws://localhost:8000/ws/${playerId}`);
 
     socket.onopen = () => {
-      console.log("WebSocket connected");
+      console.log("WebSocket connected 成功!");
+      setIsConnected(true);
     };
 
     socket.onmessage = (event) => {
+      console.log("收到 WebSocket 消息:", event.data);
       const data = JSON.parse(event.data);
       handleSocketMessage(data);
     };
 
     socket.onclose = () => {
       console.log("WebSocket disconnected");
+      setIsConnected(false);
     };
 
     socket.onerror = (e) => {
       console.log("WS error", e);
+      setIsConnected(false);
     };
 
     setWs(socket);
 
-    return () => socket.close();
-
-  }, [currentPlayer]);
-
+    return () => {
+      console.log("清理 WebSocket 连接");
+      if (socket) {
+        socket.close();
+      }
+    };
+  }, []);  // 注意：依赖数组是空的，只执行一次
   
   
   const handleVote = async (targetId) => {
@@ -215,6 +334,7 @@ function App() {
           content: `你投票给了 P${targetId}`
         }
       ]);
+      setMatrixUpdateTrigger(prev => prev + 1);
 
     } catch (err) {
 
@@ -222,36 +342,15 @@ function App() {
     }
   };
 
-  const sendSpeech = async () => {
+  const sendSpeech = () => {
 
-    // 空输入不发送
     if (!speechInput.trim()) return;
 
-    try {
+    if (ws) {
+      ws.send(speechInput);
 
-      await fetch(
-        "http://localhost:8000/api/game/ai/speak",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            player_id: currentPlayer,
-            speech: speechInput,
-          }),
-        }
-      );
-
-      // 清空输入框
       setSpeechInput("");
-
-      // 发言结束
       setIsMyTurn(false);
-
-    } catch (err) {
-
-      console.error("Send speech failed:", err);
     }
   };
 
@@ -301,6 +400,7 @@ function App() {
           content: "游戏开始"
         }
       ]);
+      setMatrixUpdateTrigger(prev => prev + 1);  
 
     } catch (err) {
 
@@ -346,15 +446,24 @@ function App() {
 
         <h2>AI Werewolf Nexus</h2>
 
+        <div>
+          你是 {currentPlayer} 号玩家 | 身份：{myRole}
+        </div>
+
         <button
           onClick={startGame}
+          disabled={!isConnected}
           style={{
             marginTop: 10,
             padding: "8px 16px",
-            cursor: "pointer"
+            cursor: isConnected ? "pointer" : "not-allowed",
+            backgroundColor: isConnected ? "#007bff" : "#ccc",
+            color: "white",
+            border: "none",
+            borderRadius: 4
           }}
         >
-          开始游戏
+          {isConnected ? "开始游戏" : "连接中..."}
         </button>
 
         <div style={{ marginTop: 10 }}>
@@ -390,7 +499,9 @@ function App() {
                   alignItems: "center",
                   justifyContent: "center",
                   border: id === currentSpeaker ? "3px solid red" : "1px solid #999",
-                  background: "white"
+                  background: "white",
+                  opacity: eliminatedPlayers.includes(id) ? 0.3 : 1,  // 添加这一行
+                  filter: eliminatedPlayers.includes(id) ? "grayscale(100%)" : "none" 
                 }}
               >
               <div
@@ -490,7 +601,7 @@ function App() {
                 </div>
 
                 <div>
-                  {msg.content || msg.speech}
+                  {msg.content}
                 </div>
 
               </div>
@@ -534,7 +645,7 @@ function App() {
 
         <h3>AI 思维监视器</h3>
 
-        <TrustMatrix />
+        <TrustMatrix trustMatrix={trustMatrix} />
 
         {/* AI选择 */}
         <div>

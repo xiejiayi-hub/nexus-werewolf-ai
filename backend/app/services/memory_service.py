@@ -5,6 +5,7 @@ from typing import List, Dict
 
 class MemoryService:
     def __init__(self):
+        self.redis_available = False
         try:
             self.redis = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
             self.redis.ping()
@@ -82,8 +83,14 @@ class MemoryService:
         posterior_score = (prior_score * self.ALPHA) + (evidence_score * (1 - self.ALPHA))
         posterior_score = max(0, min(100, round(posterior_score, 2)))
         matrix[eval_key][target_key] = posterior_score
-        self.redis.set(self.TRUST_KEY, json.dumps(matrix))
-        print(f"📈 贝叶斯更新：玩家{evaluator_id}对玩家{target_id}的信任度 -> {posterior_score}")
+        
+        if self.redis_available:
+            self.redis.set(self.TRUST_KEY, json.dumps(matrix))
+        else:
+            self._memory_trust = matrix
+        
+        print(f"📈 贝叶斯更新：玩家{evaluator_id}对玩家{target_id}的信任度 {prior_score} -> {posterior_score}")
+        return posterior_score
 
     # ================= 任务 2 & 3：记录与导出 =================
 
