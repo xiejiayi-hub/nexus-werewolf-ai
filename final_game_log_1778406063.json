@@ -1,0 +1,122 @@
+{
+  "game_id": "game_1778406063",
+  "export_time": "2026-05-10 17:41:03",
+  "data_metrics": {
+    "total_speeches": 3,
+    "total_votes": 3,
+    "total_eliminations": 3
+  },
+  "game_logs": {
+    "summary": "",
+    "history": [
+      {
+        "player_id": 1,
+        "role": "WEREWOLF",
+        "speech": "我觉得3号是预言家。"
+      },
+      {
+        "player_id": 1,
+        "role": "WEREWOLF",
+        "speech": "我觉得3号是预言家。"
+      },
+      {
+        "player_id": 1,
+        "role": "WEREWOLF",
+        "speech": "我觉得3号是预言家。"
+      }
+    ],
+    "votes": [
+      {
+        "round": 1,
+        "voter": 1,
+        "target": 3,
+        "timestamp": 1778405030.8284113
+      },
+      {
+        "round": 1,
+        "voter": 1,
+        "target": 3,
+        "timestamp": 1778405041.225327
+      },
+      {
+        "round": 1,
+        "voter": 1,
+        "target": 3,
+        "timestamp": 1778406063.0866091
+      }
+    ],
+    "eliminations": [
+      {
+        "round": 1,
+        "player_id": 3,
+        "role": "SEER",
+        "reason": "killed_by_wolf",
+        "timestamp": "17:23:50"
+      },
+      {
+        "round": 1,
+        "player_id": 3,
+        "role": "SEER",
+        "reason": "killed_by_wolf",
+        "timestamp": "17:24:01"
+      },
+      {
+        "round": 1,
+        "player_id": 3,
+        "role": "SEER",
+        "reason": "killed_by_wolf",
+        "timestamp": "17:41:03"
+      }
+    ],
+    "trust_matrix": {
+      "1": {
+        "1": 50,
+        "2": 50,
+        "3": 23.72,
+        "4": 50,
+        "5": 50,
+        "6": 50
+      },
+      "2": {
+        "1": 27.0,
+        "2": 50,
+        "3": 50,
+        "4": 50,
+        "5": 50,
+        "6": 50
+      },
+      "3": {
+        "1": 50,
+        "2": 50,
+        "3": 50,
+        "4": 50,
+        "5": 50,
+        "6": 50
+      },
+      "4": {
+        "1": 50,
+        "2": 50,
+        "3": 50,
+        "4": 50,
+        "5": 50,
+        "6": 50
+      },
+      "5": {
+        "1": 50,
+        "2": 50,
+        "3": 50,
+        "4": 50,
+        "5": 50,
+        "6": 50
+      },
+      "6": {
+        "1": 50,
+        "2": 50,
+        "3": 50,
+        "4": 50,
+        "5": 50,
+        "6": 50
+      }
+    }
+  }
+}
