@@ -1,68 +1,60 @@
-export default function ThoughtWindow({
+// frontend/src/components/ThoughtWindow.jsx
 
-  thought,
-  selectedAI,
-  onClose
+import React from 'react';
 
-}) {
-
-  // 没有内容不显示
-  if (!thought) return null;
+const ThoughtWindow = ({ thought, selectedAI, onClose }) => {
+  if (!thought) {
+    return (
+      <div style={{
+        border: '1px solid #ddd',
+        borderRadius: 8,
+        padding: 12,
+        marginTop: 16,
+        background: '#f9f9f9'
+      }}>
+        <h4 style={{ margin: '0 0 8px 0' }}>AI 内心独白</h4>
+        <div style={{ color: '#999', textAlign: 'center', padding: 20 }}>
+          点击玩家头像查看 AI 心理活动
+        </div>
+      </div>
+    );
+  }
 
   return (
-
-    <div
-      style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        width: "100%",
-        height: "100%",
-        background: "rgba(0,0,0,0.5)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 999
-      }}
-    >
-
-      {/* 内容窗口 */}
-      <div
+    <div style={{
+      border: '1px solid #ddd',
+      borderRadius: 8,
+      padding: 12,
+      marginTop: 16,
+      background: '#f9f9f9',
+      position: 'relative'
+    }}>
+      <button
+        onClick={onClose}
         style={{
-          width: 500,
-          background: "white",
-          borderRadius: 12,
-          padding: 24,
-          boxShadow: "0 0 20px rgba(0,0,0,0.3)"
+          position: 'absolute',
+          right: 8,
+          top: 8,
+          background: 'none',
+          border: 'none',
+          fontSize: 16,
+          cursor: 'pointer'
         }}
       >
-
-        <h2>
-          AI {selectedAI} 内心独白
-        </h2>
-
-        <div
-          style={{
-            marginTop: 16,
-            lineHeight: 1.6,
-            whiteSpace: "pre-wrap"
-          }}
-        >
-          {thought}
-        </div>
-
-        <button
-          onClick={onClose}
-          style={{
-            marginTop: 20,
-            padding: "8px 16px",
-            cursor: "pointer"
-          }}
-        >
-          关闭
-        </button>
-
+        ×
+      </button>
+      <h4 style={{ margin: '0 0 8px 0' }}>AI {selectedAI} 的内心独白</h4>
+      <div style={{
+        padding: 8,
+        background: 'white',
+        borderRadius: 4,
+        border: '1px solid #eee',
+        fontStyle: 'italic'
+      }}>
+        {thought}
       </div>
     </div>
   );
-}
+};
+
+export default ThoughtWindow;
