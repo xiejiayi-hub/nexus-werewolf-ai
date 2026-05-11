@@ -27,18 +27,46 @@ RETRY_DELAY = 1
 
 
 def _get_speech_prompt(role: str, game_state: str, history: str) -> str:
-    """生成公开发言的 Prompt"""
-    prompts = {
-        "WEREWOLF": f"你是狼人杀中的【狼人】。你的目标是隐藏身份，迷惑好人。状态：{game_state}，历史：{history}。请用一句话公开说话（不要暴露身份）：",
-        "SEER": f"你是狼人杀中的【预言家】。你的目标是找出狼人。状态：{game_state}，历史：{history}。请用一句话公开说话：",
-        "VILLAGER": f"你是狼人杀中的【平民】。你的目标是找出狼人。状态：{game_state}，历史：{history}。请用一句话公开说话："
+    """生成发言 - 活人模仿模式"""
+    
+    role_names = {
+        "WEREWOLF": "狼人",
+        "SEER": "预言家", 
+        "VILLAGER": "平民"
     }
-    return prompts.get(role, prompts["VILLAGER"])
+    
+    return f"""你是一个真实的人类玩家，正在玩狼人杀。你的身份是{role_names.get(role, '平民')}。
+
+不要像AI那样说话，要像一个真人：
+- 说话要有情绪（怀疑、无奈、激动、忽悠）
+- 可以用口语词：'我觉得'、'感觉'、'反正'、'其实就是'、'不是我说'
+- 可以反问别人：'你倒是说说看？'、'你什么意思？'
+- 可以给自己找理由：'我就是一个平民'、'我说的是真的'
+- 可以带节奏：'投票吧'、'我跟你'、'听我的'
+
+请模仿真人，不要像AI一样说"我是平民，过"这种话。
+
+直接说你要说的话（一句话就行），不要加引号："""
 
 
 def _get_thought_prompt(role: str, game_state: str, history: str) -> str:
-    """生成内心独白的 Prompt"""
-    return f"你是狼人杀中的【{role}】。状态：{game_state}，历史：{history}。请用一句话说出你的真实想法（不公开，只给自己看）："
+    """生成内心独白 - 活人思考模式"""
+    
+    role_names = {
+        "WEREWOLF": "狼人",
+        "SEER": "预言家", 
+        "VILLAGER": "平民"
+    }
+    
+    return f"""你是一个真实的人类玩家，正在玩狼人杀。你的身份是{role_names.get(role, '平民')}。
+
+这是你的内心独白（不会公开），请说出你此刻的真实想法：
+- 你怀疑谁？为什么？
+- 你相信谁？
+- 如果你是狼人，你在想什么战术？
+- 如果你是预言家，你在想要不要跳？
+
+直接说出你的想法（一句话就行），不要加引号："""
 
 
 def _get_trust_prompt(role: str, history: str, speech: str) -> str:
@@ -63,7 +91,7 @@ def _call_api_with_retry(prompt: str, max_retries: int = MAX_RETRIES) -> Optiona
         "model": "deepseek-chat",
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 150,
-        "temperature": 0.7
+        "temperature": 0.8  # 提高温度让回答更多样
     }
     
     for attempt in range(max_retries):
@@ -95,22 +123,22 @@ def _call_api_with_retry(prompt: str, max_retries: int = MAX_RETRIES) -> Optiona
 def _get_fallback_response(role: str) -> Dict[str, Any]:
     """降级发言（API 超时或失败时使用）"""
     fallback_speeches = {
-        "WEREWOLF": ["我是好人，过", "我感觉3号有问题", "先观察一下"],
-        "SEER": ["我是平民，过", "暂时没信息", "先听听别人"],
-        "VILLAGER": ["我是平民，过", "没信息，过", "听预言家的"]
+        "WEREWOLF": ["我觉得3号有问题", "先观察一下", "我跟预言家走"],
+        "SEER": ["我觉得2号是好人", "3号有点可疑", "先听听别人"],
+        "VILLAGER": ["没信息，过", "听预言家的", "我跟票"]
     }
     
     fallback_thoughts = {
-        "WEREWOLF": ["别暴露，装好人", "隐藏身份", "跟着好人投票"],
-        "SEER": ["先不跳，观察一下", "找个时机跳预言家", "保护好自己"],
-        "VILLAGER": ["跟着感觉走", "观察发言漏洞", "找狼人"]
+        "WEREWOLF": ["隐藏身份", "装好人", "别被识破"],
+        "SEER": ["先不跳", "再观察", "找狼人中"],
+        "VILLAGER": ["跟着感觉走", "观察发言", "找狼人"]
     }
     
     speeches = fallback_speeches.get(role, fallback_speeches["VILLAGER"])
     thoughts = fallback_thoughts.get(role, fallback_thoughts["VILLAGER"])
     
     return {
-        "thought": random.choice(thoughts) + "（API超时，降级发言）",
+        "thought": random.choice(thoughts) + "（API超时）",
         "speech": random.choice(speeches),
         "fallback": True
     }
