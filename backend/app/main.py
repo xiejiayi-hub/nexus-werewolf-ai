@@ -11,6 +11,7 @@ from pydantic import BaseModel
 import random
 from app.services.llm_service import get_ai_response_with_timeout
 from app.services.memory_service import memory_db
+ai_thoughts = {} 
 
 class VoteRequest(BaseModel):
     voter_id: int
@@ -115,14 +116,13 @@ async def get_trust_matrix():
     try:
         if memory_db:
             matrix = memory_db.get_trust_matrix()
+            print(f"[DEBUG] 信任矩阵数据: {matrix}")  # 添加调试
             return {"trust_matrix": matrix}
         else:
-            # 返回默认数据
             matrix = {str(i): {str(j): 50 for j in range(1, 7)} for i in range(1, 7)}
             return {"trust_matrix": matrix}
     except Exception as e:
         print(f"获取信任矩阵失败: {e}")
-        # 返回默认数据
         matrix = {str(i): {str(j): 50 for j in range(1, 7)} for i in range(1, 7)}
         return {"trust_matrix": matrix}
 
@@ -211,7 +211,7 @@ async def start_first_night():
     
     # 3. 女巫行动（第一夜）
     game.phase = GamePhase.NIGHT_WITCH
-    await auto_witch_action()
+    await handle_witch_action()
     
     # 4. 解决夜晚结果
     deaths = game.resolve_night()
@@ -348,6 +348,55 @@ async def handle_seer_action():
         is_wolf = (result == Role.WEREWOLF)
         print(f"[预言家] AI查验了 {target}, 结果是{'狼人' if is_wolf else '好人'}")
 
+async def handle_witch_action():
+    """处理女巫行动，支持人类玩家主动选择"""
+    witches = [p for p in game.players if p["role"] == Role.WITCH and p["alive"]]
+    
+    if not witches:
+        return
+    
+    # 检查人类玩家是否是女巫
+    human_is_witch = human_player_id in [w["id"] for w in witches]
+    
+    # 获取被杀目标
+    killed_target = game.killed_target
+    
+    if human_is_witch:
+        alive_players = [p["id"] for p in game.players if p["alive"] and p["id"] != human_player_id]
+        
+        await broadcast({
+            "type": "NIGHT_CHOOSE_TARGET",
+            "data": {
+                "action": "witch_action",
+                "candidates": {
+                    "killed_target": game.killed_target,
+                    "candidates": alive_players,
+                    "message": f"被杀的是 P{game.killed_target}，是否使用解药？"
+                }
+            }
+        })
+        
+        # 等待人类玩家选择（30秒超时）
+        try:
+            await asyncio.wait_for(human_night_action_received.wait(), timeout=30)
+            save_target = human_night_action.get("witch_save")
+            poison_target = human_night_action.get("witch_poison")
+            human_night_action_received.clear()
+            
+            # 记录女巫行动
+            game.record_witch_action(save_target=save_target, poison_target=poison_target)
+            
+            if save_target:
+                print(f"[女巫] 人类玩家救了 {save_target}")
+            if poison_target:
+                print(f"[女巫] 人类玩家毒死了 {poison_target}")
+            return
+        except asyncio.TimeoutError:
+            print("[女巫] 人类玩家超时，自动行动")
+    
+    # AI女巫或人类超时，自动行动
+    await auto_witch_action()
+
 async def handle_ai_turn(player_id: int):
     """AI发言 - 使用真正的LLM"""
     print(f"AI {player_id} 开始发言")
@@ -360,7 +409,6 @@ async def handle_ai_turn(player_id: int):
             break
     
     if not player_role:
-        # 降级到预设发言
         await handle_ai_turn_fallback(player_id)
         return
     
@@ -387,6 +435,10 @@ async def handle_ai_turn(player_id: int):
         speech = response.get("speech", "我是好人，过")
         thought = response.get("thought", "我在思考...")
         
+        # ===== 保存内心独白 =====
+        ai_thoughts[player_id] = thought
+        print(f"💭 AI {player_id} 内心独白: {thought}")
+        
         # 保存到memory
         if memory_db:
             memory_db.save_message(player_id, player_role.value, speech, response.get("trust_scores"))
@@ -411,7 +463,22 @@ async def handle_ai_turn_fallback(player_id: int):
         f"我是{player_id}号，先听听别人怎么说。"
     ]
     
-    thought = f"我是AI玩家{player_id}，我在思考当前局势..."
+    thoughts = [
+        f"我是AI玩家{player_id}，我在分析当前局势...",
+        f"我在考虑谁更可能是狼人...",
+        f"我需要更多发言才能做出判断。",
+        f"我在观察每个人的行为模式。",
+        f"当前的投票情况对我来说还不够明确。"
+    ]
+    
+    speech = random.choice(speeches)
+    thought = random.choice(thoughts)
+    
+    # ===== 保存内心独白 =====
+    ai_thoughts[player_id] = thought
+    print(f"💭 AI {player_id} 内心独白(降级): {thought}")
+    
+    await ai_speak_internal(player_id, speech, thought)
     await ai_speak_internal(player_id, random.choice(speeches), thought)
 
 async def ai_speak_internal(player_id: int, speech: str, thought: str):
@@ -469,6 +536,36 @@ async def ai_speak_internal(player_id: int, speech: str, thought: str):
             })
             await auto_ai_votes()
 
+@app.post("/api/game/vote")
+async def cast_vote(req: VoteRequest):
+    """人类玩家投票"""
+    print(f"收到投票请求: voter={req.voter_id}, target={req.target_id}")
+    
+    if req.voter_id not in game.alive_players:
+        return {"status": "error", "message": "玩家已死亡"}
+    
+    if req.voter_id in game.votes:
+        return {"status": "already_voted"}
+    
+    game.record_vote(req.voter_id, req.target_id)
+    
+    await broadcast({
+        "type": "VOTE_CAST",
+        "data": {
+            "player_id": req.voter_id,
+            "content": f"P{req.voter_id} 投票给了 P{req.target_id}"
+        }
+    })
+    
+    # 检查是否所有存活玩家都已投票
+    if len(game.votes) == len(game.alive_players):
+        await process_vote_result()
+    else:
+        # 让AI投票
+        await auto_ai_votes()
+    
+    return {"status": "ok"}
+
 @app.post("/api/game/ai/speak")
 async def ai_speak(req: AISpeakRequest):
     """AI发言的HTTP接口"""
@@ -477,7 +574,7 @@ async def ai_speak(req: AISpeakRequest):
 
 async def auto_ai_votes():
     """让所有AI自动投票"""
-    print("AI开始投票...")
+    print(f"[AI投票] 开始，存活玩家: {game.alive_players}, 已投票: {list(game.votes.keys())}")
     
     for pid in game.alive_players:
         if pid != human_player_id and pid not in game.votes:
@@ -494,38 +591,67 @@ async def auto_ai_votes():
                     }
                 })
     
-    # 检查投票是否完成
+    # 检查投票是否完成（所有存活玩家都已投票）
     if len(game.votes) == len(game.alive_players):
         await process_vote_result()
 
-@app.post("/api/game/vote")
-async def cast_vote(req: VoteRequest):
-    """人类玩家投票"""
-    if req.voter_id in game.votes:
-        return {"status": "already_voted"}
-    
-    game.record_vote(req.voter_id, req.target_id)
-    
-    await broadcast({
-        "type": "VOTE_CAST",
-        "data": {
-            "player_id": req.voter_id,
-            "content": f"P{req.voter_id} 投票给了 P{req.target_id}"
-        }
-    })
-    
-    # 让AI也投票
-    await auto_ai_votes()
-    
-    return {"status": "ok"}
 
-# backend/app/main.py - 修改投票处理和添加夜晚阶段
+async def auto_ai_votes_rerun(exclude_players):
+    """平票后让AI重新投票（排除平票候选人）"""
+    print(f"[AI重新投票] 排除玩家: {exclude_players}")
+    
+    # 平票后重置投票记录
+    game.votes = {}
+    
+    # 获取可以投票的玩家（排除平票候选人）
+    eligible_voters = [p for p in game.alive_players if p not in exclude_players]
+    print(f"[AI重新投票] 可投票玩家: {eligible_voters}")
+    
+    for pid in eligible_voters:
+        if pid != human_player_id and pid not in game.votes:
+            # 可选目标：排除自己和平票候选人
+            candidates = [p for p in game.alive_players if p != pid and p not in exclude_players]
+            if candidates:
+                target = random.choice(candidates)
+                game.record_vote(pid, target)
+                
+                await broadcast({
+                    "type": "VOTE_CAST",
+                    "data": {
+                        "player_id": pid,
+                        "content": f"P{pid} 投票给了 P{target}"
+                    }
+                })
+    
+    # 检查投票是否完成（所有可投票玩家都已投票）
+    if len(game.votes) == len(eligible_voters):
+        await process_vote_result()
+
 
 async def process_vote_result():
     """处理投票结果，决定谁被淘汰"""
     global current_timeout_task
     
+    # 等待人类玩家投票（如果还没投）
+    if human_player_id in game.alive_players and human_player_id not in game.votes:
+        print("[投票] 等待人类玩家投票...")
+        # 给人类玩家30秒时间投票
+        await broadcast({
+            "type": "VOTE_PHASE",
+            "data": {"content": "请投票！你有30秒时间"}
+        })
+        try:
+            await asyncio.wait_for(_wait_for_human_vote(), timeout=30)
+        except asyncio.TimeoutError:
+            print("[投票] 人类玩家超时，随机投票")
+            # 超时随机投票
+            candidates = [p for p in game.alive_players if p != human_player_id]
+            if candidates:
+                random_target = random.choice(candidates)
+                game.record_vote(human_player_id, random_target)
+    
     if len(game.votes) != len(game.alive_players):
+        print(f"[投票] 投票未完成: 已投票{len(game.votes)}/{len(game.alive_players)}")
         return
     
     print(f"[投票] 投票结果: {game.votes}")
@@ -570,17 +696,25 @@ async def process_vote_result():
         await start_night_phase()
         
     else:
-        # 平票，重新投票
-        game.votes = {}
+        # 平票处理
+        print(f"[投票] 平票，候选人: {candidates}，重新投票")
+        
         await broadcast({
             "type": "NO_ELIMINATION",
-            "data": {"content": f"平票（{candidates}），无人被放逐，请重新投票"}
+            "data": {"content": f"平票（P{', P'.join(map(str, candidates))}），请其他玩家重新投票"}
         })
-        # 重新投票
-        await broadcast({
-            "type": "VOTE_PHASE",
-            "data": {"content": "请重新投票"}
-        })
+        
+        # 让AI重新投票（排除平票候选人）
+        await auto_ai_votes_rerun(candidates)
+
+
+async def _wait_for_human_vote():
+    """等待人类玩家投票（简易实现）"""
+    # 这个函数会被 process_vote_result 中的 wait_for 调用
+    # 实际的人类投票通过 WebSocket 的 VOTE_CAST 消息处理
+    # 这里简单等待，实际检查在别处完成
+    while human_player_id not in game.votes:
+        await asyncio.sleep(0.5)
 
 
 async def start_night_phase():
@@ -607,7 +741,7 @@ async def start_night_phase():
     
     # 3. 女巫行动
     game.phase = GamePhase.NIGHT_WITCH
-    await auto_witch_action()
+    await handle_witch_action()
     
     # 4. 解决夜晚结果
     deaths = game.resolve_night()
@@ -776,14 +910,24 @@ async def websocket_endpoint(websocket: WebSocket, player_id: int):
             print(f"收到玩家 {player_id} 的消息: {data}")
             
             # 新增：处理夜晚行动消息
-            if is_human and game.phase in [GamePhase.NIGHT_WOLF, GamePhase.NIGHT_SEER]:
+            if is_human and game.phase in [GamePhase.NIGHT_WOLF, GamePhase.NIGHT_SEER, GamePhase.NIGHT_WITCH]:
                 try:
                     msg = json.loads(data) if isinstance(data, str) and data.startswith('{') else None
                     if msg and "night_action" in msg:
                         action_type = msg.get("action_type")
                         target = msg.get("target")
-                        human_night_action[action_type] = target
-                        human_night_action_received.set()
+                        
+                        # 处理女巫行动
+                        if action_type == "witch_save":
+                            human_night_action["witch_save"] = target
+                            human_night_action_received.set()
+                        elif action_type == "witch_poison":
+                            human_night_action["witch_poison"] = target
+                            human_night_action_received.set()
+                        else:
+                            human_night_action[action_type] = target
+                            human_night_action_received.set()
+                        
                         await websocket.send_text(json.dumps({
                             "type": "NIGHT_ACTION_CONFIRM",
                             "data": {"content": f"已选择目标 P{target}"}

@@ -177,8 +177,15 @@ class GameStateMachine:
         return self.current_speaker
 
     def record_vote(self, voter_id: int, target_id: int):
-        if voter_id in self.alive_players and target_id in self.alive_players:
-            self.votes[voter_id] = target_id
+        """记录投票并更新信任度"""
+        self.votes[voter_id] = target_id
+        
+        # 投票一致性检测：如果AI投票给最终被淘汰的狼人，增强信任
+        # 这个可以在淘汰结果出来后做贝叶斯更新
+        from app.services.memory_service import memory_db
+        if memory_db:
+            # 记录投票行为，用于后续信任更新
+            memory_db.save_vote(self.round, voter_id, target_id)
 
     def calculate_elimination(self) -> Optional[int]:
         if not self.votes:
