@@ -1,3 +1,5 @@
+# backend/app/core/game_state.py - 修改 resolve_night 和 start_night_phase
+
 from typing import List, Dict, Optional
 from enum import Enum
 import random
@@ -49,12 +51,14 @@ class GameStateMachine:
         return role_assignment
 
     def start_night_phase(self):
+        """开始夜晚阶段"""
         self.phase = GamePhase.NIGHT_WOLF
         self.wolf_votes = {}
         self.seer_target = None
         self.witch_save = None
         self.witch_poison = None
         self.killed_target = None
+        print(f"[夜晚] 进入夜晚阶段，存活玩家: {self.alive_players}")
         return self.phase
 
     def record_wolf_vote(self, wolf_id: int, target_id: int):
@@ -84,41 +88,104 @@ class GameStateMachine:
     def record_seer_check(self, target_id: int):
         if self.phase == GamePhase.NIGHT_SEER:
             self.seer_target = target_id
+            print(f"[预言家] 记录查验目标: {target_id}")
 
-    def get_seer_result(self) -> Optional[str]:
+    def get_seer_result(self) -> Optional[Role]:
+        """获取预言家查验结果 - 返回Role而不是字符串"""
         if self.seer_target is None:
             return None
         for player in self.players:
-            if player["id"] == self.seer_target and player["alive"]:
+            if player["id"] == self.seer_target:
+                # 确保返回正确的角色
                 return player["role"]
         return None
 
+    def record_witch_action(self, save_target: Optional[int] = None, poison_target: Optional[int] = None):
+        """记录女巫行动"""
+        if self.phase == GamePhase.NIGHT_WITCH:
+            if save_target is not None:
+                self.witch_save = save_target
+            if poison_target is not None:
+                self.witch_poison = poison_target
+            print(f"[女巫行动] 救: {save_target}, 毒: {poison_target}")
+
     def resolve_night(self):
+        """解决夜晚阶段 - 返回被杀和毒死的玩家"""
+        # 1. 狼人杀人
         killed = self.resolve_wolf_kill()
         
-        if self.killed_target:
-            self.eliminate(self.killed_target, silent=True)
+        # 2. 女巫救人/毒人
+        final_killed = killed
+        poisoned = None
         
-        self.start_day_phase()
-        return self.killed_target
+        # 如果女巫救了被杀的人
+        if self.witch_save and killed == self.witch_save:
+            final_killed = None
+            print(f"[夜晚] 女巫救下了 {self.witch_save}")
+        
+        # 女巫毒人
+        if self.witch_poison:
+            poisoned = self.witch_poison
+            print(f"[夜晚] 女巫毒死了 {self.witch_poison}")
+        
+        # 3. 执行死亡
+        deaths = []
+        if final_killed:
+            self.eliminate(final_killed, silent=True)
+            deaths.append(final_killed)
+        if poisoned:
+            self.eliminate(poisoned, silent=True)
+            deaths.append(poisoned)
+        
+        # 清空夜晚数据
+        self.witch_save = None
+        self.witch_poison = None
+        self.killed_target = None
+        
+        print(f"[夜晚] 死亡玩家: {deaths if deaths else '无人死亡'}")
+        return deaths
 
     def start_day_phase(self):
+        """开始白天阶段"""
         self.phase = GamePhase.DAY_DISCUSSION
-        self.speak_order = self.alive_players.copy()
-        random.shuffle(self.speak_order)
-        self.current_speaker = self.speak_order.pop(0) if self.speak_order else None
+        
+        # 按数字顺序排序（顺时针）
+        self.speak_order = sorted([p for p in self.alive_players if p in self.alive_players])
+        
+        print(f"[DEBUG] 发言顺序(顺时针): {self.speak_order}")
+        
+        # 取出第一个发言者
+        if self.speak_order:
+            self.current_speaker = self.speak_order.pop(0)
+            print(f"[DEBUG] 第一个发言者: {self.current_speaker}")
+            print(f"[DEBUG] 剩余发言者: {self.speak_order}")
+        else:
+            self.current_speaker = None
+            print(f"[DEBUG] 没有存活玩家")
+        
         self.round += 1
 
     def next_speaker(self) -> Optional[int]:
+        """返回下一个发言者，如果没有则返回None"""
         if not self.speak_order:
-            self.phase = GamePhase.DAY_VOTE
+            print("发言队列为空，发言结束")
             return None
+        
         self.current_speaker = self.speak_order.pop(0)
+        print(f"下一个发言者是: {self.current_speaker}")
+        
         return self.current_speaker
 
     def record_vote(self, voter_id: int, target_id: int):
-        if voter_id in self.alive_players and target_id in self.alive_players:
-            self.votes[voter_id] = target_id
+        """记录投票并更新信任度"""
+        self.votes[voter_id] = target_id
+        
+        # 投票一致性检测：如果AI投票给最终被淘汰的狼人，增强信任
+        # 这个可以在淘汰结果出来后做贝叶斯更新
+        from app.services.memory_service import memory_db
+        if memory_db:
+            # 记录投票行为，用于后续信任更新
+            memory_db.save_vote(self.round, voter_id, target_id)
 
     def calculate_elimination(self) -> Optional[int]:
         if not self.votes:
@@ -146,10 +213,9 @@ class GameStateMachine:
         if not silent:
             self.votes = {}
         
+        # 检查游戏是否结束
         if self.check_game_over():
             self.phase = GamePhase.GAME_OVER
-        elif not silent:
-            self.start_night_phase()
 
     def check_game_over(self) -> bool:
         werewolves_alive = [p for p in self.players
