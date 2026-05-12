@@ -1,0 +1,104 @@
+{
+  "game_id": "game_1778405041",
+  "export_time": "2026-05-10 17:24:01",
+  "data_metrics": {
+    "total_speeches": 2,
+    "total_votes": 2,
+    "total_eliminations": 2
+  },
+  "game_logs": {
+    "summary": "",
+    "history": [
+      {
+        "player_id": 1,
+        "role": "WEREWOLF",
+        "speech": "我觉得3号是预言家。"
+      },
+      {
+        "player_id": 1,
+        "role": "WEREWOLF",
+        "speech": "我觉得3号是预言家。"
+      }
+    ],
+    "votes": [
+      {
+        "round": 1,
+        "voter": 1,
+        "target": 3,
+        "timestamp": 1778405030.8284113
+      },
+      {
+        "round": 1,
+        "voter": 1,
+        "target": 3,
+        "timestamp": 1778405041.225327
+      }
+    ],
+    "eliminations": [
+      {
+        "round": 1,
+        "player_id": 3,
+        "role": "SEER",
+        "reason": "killed_by_wolf",
+        "timestamp": "17:23:50"
+      },
+      {
+        "round": 1,
+        "player_id": 3,
+        "role": "SEER",
+        "reason": "killed_by_wolf",
+        "timestamp": "17:24:01"
+      }
+    ],
+    "trust_matrix": {
+      "1": {
+        "1": 50,
+        "2": 50,
+        "3": 29.6,
+        "4": 50,
+        "5": 50,
+        "6": 50
+      },
+      "2": {
+        "1": 32.15,
+        "2": 50,
+        "3": 50,
+        "4": 50,
+        "5": 50,
+        "6": 50
+      },
+      "3": {
+        "1": 50,
+        "2": 50,
+        "3": 50,
+        "4": 50,
+        "5": 50,
+        "6": 50
+      },
+      "4": {
+        "1": 50,
+        "2": 50,
+        "3": 50,
+        "4": 50,
+        "5": 50,
+        "6": 50
+      },
+      "5": {
+        "1": 50,
+        "2": 50,
+        "3": 50,
+        "4": 50,
+        "5": 50,
+        "6": 50
+      },
+      "6": {
+        "1": 50,
+        "2": 50,
+        "3": 50,
+        "4": 50,
+        "5": 50,
+        "6": 50
+      }
+    }
+  }
+}
